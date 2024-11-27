@@ -6,6 +6,8 @@
 (define-constant ERR-INVALID-STATE (err u2))
 (define-constant ERR-INSUFFICIENT-FUNDS (err u3))
 (define-constant ERR-DISPUTE-NOT-FOUND (err u4))
+(define-constant ERR-INVALID-AMOUNT (err u5))
+(define-constant ERR-INVALID-ESCROW-ID (err u6))
 
 ;; Escrow States
 (define-constant STATE-INITIATED u0)
@@ -36,6 +38,9 @@
         ;; Validate seller is not contract owner
         (asserts! (not (is-eq seller CONTRACT-OWNER)) ERR-UNAUTHORIZED)
         
+        ;; Validate amount
+        (asserts! (> amount u0) ERR-INVALID-AMOUNT)
+        
         ;; Increment escrow ID
         (let ((escrow-id (var-get next-escrow-id)))
             (var-set next-escrow-id (+ escrow-id u1))
@@ -60,33 +65,43 @@
 
 ;; Fund the escrow
 (define-public (fund-escrow (escrow-id uint))
-    (let ((escrow (unwrap! (map-get? escrows {id: escrow-id}) ERR-DISPUTE-NOT-FOUND)))
-        (asserts! (is-eq (get state escrow) STATE-INITIATED) ERR-INVALID-STATE)
-        (asserts! (is-eq (get buyer escrow) tx-sender) ERR-UNAUTHORIZED)
+    (begin
+        ;; Validate escrow-id
+        (asserts! (< escrow-id (var-get next-escrow-id)) ERR-INVALID-ESCROW-ID)
         
-        ;; Update escrow state to funded
-        (map-set escrows 
-            {id: escrow-id} 
-            (merge escrow {state: STATE-FUNDED})
+        (let ((escrow (unwrap! (map-get? escrows {id: escrow-id}) ERR-DISPUTE-NOT-FOUND)))
+            (asserts! (is-eq (get state escrow) STATE-INITIATED) ERR-INVALID-STATE)
+            (asserts! (is-eq (get buyer escrow) tx-sender) ERR-UNAUTHORIZED)
+            
+            ;; Update escrow state to funded
+            (map-set escrows 
+                {id: escrow-id} 
+                (merge escrow {state: STATE-FUNDED})
+            )
+            
+            (ok true)
         )
-        
-        (ok true)
     )
 )
 
 ;; Complete escrow and release funds to seller
 (define-public (complete-escrow (escrow-id uint))
-    (let ((escrow (unwrap! (map-get? escrows {id: escrow-id}) ERR-DISPUTE-NOT-FOUND)))
-        (asserts! (is-eq (get state escrow) STATE-FUNDED) ERR-INVALID-STATE)
-        (asserts! (is-eq (get buyer escrow) tx-sender) ERR-UNAUTHORIZED)
+    (begin
+        ;; Validate escrow-id
+        (asserts! (< escrow-id (var-get next-escrow-id)) ERR-INVALID-ESCROW-ID)
         
-        ;; Update escrow state to completed
-        (map-set escrows 
-            {id: escrow-id} 
-            (merge escrow {state: STATE-COMPLETED})
+        (let ((escrow (unwrap! (map-get? escrows {id: escrow-id}) ERR-DISPUTE-NOT-FOUND)))
+            (asserts! (is-eq (get state escrow) STATE-FUNDED) ERR-INVALID-STATE)
+            (asserts! (is-eq (get buyer escrow) tx-sender) ERR-UNAUTHORIZED)
+            
+            ;; Update escrow state to completed
+            (map-set escrows 
+                {id: escrow-id} 
+                (merge escrow {state: STATE-COMPLETED})
+            )
+            
+            (ok true)
         )
-        
-        (ok true)
     )
 )
 
@@ -96,21 +111,26 @@
     (dispute-reason (string-utf8 200))
     (dispute-resolver principal)
 )
-    (let ((escrow (unwrap! (map-get? escrows {id: escrow-id}) ERR-DISPUTE-NOT-FOUND)))
-        (asserts! (is-eq (get state escrow) STATE-FUNDED) ERR-INVALID-STATE)
-        (asserts! (is-eq (get buyer escrow) tx-sender) ERR-UNAUTHORIZED)
+    (begin
+        ;; Validate escrow-id
+        (asserts! (< escrow-id (var-get next-escrow-id)) ERR-INVALID-ESCROW-ID)
         
-        ;; Update escrow state to disputed
-        (map-set escrows 
-            {id: escrow-id} 
-            (merge escrow {
-                state: STATE-DISPUTED,
-                dispute-resolver: (some dispute-resolver),
-                dispute-reason: (some dispute-reason)
-            })
+        (let ((escrow (unwrap! (map-get? escrows {id: escrow-id}) ERR-DISPUTE-NOT-FOUND)))
+            (asserts! (is-eq (get state escrow) STATE-FUNDED) ERR-INVALID-STATE)
+            (asserts! (is-eq (get buyer escrow) tx-sender) ERR-UNAUTHORIZED)
+            
+            ;; Update escrow state to disputed
+            (map-set escrows 
+                {id: escrow-id} 
+                (merge escrow {
+                    state: STATE-DISPUTED,
+                    dispute-resolver: (some dispute-resolver),
+                    dispute-reason: (some dispute-reason)
+                })
+            )
+            
+            (ok true)
         )
-        
-        (ok true)
     )
 )
 
@@ -119,23 +139,34 @@
     (escrow-id uint) 
     (refund-to-buyer bool)
 )
-    (let ((escrow (unwrap! (map-get? escrows {id: escrow-id}) ERR-DISPUTE-NOT-FOUND)))
-        (asserts! (is-eq (get state escrow) STATE-DISPUTED) ERR-INVALID-STATE)
-        (asserts! (is-eq (get dispute-resolver escrow) (some tx-sender)) ERR-UNAUTHORIZED)
+    (begin
+        ;; Validate escrow-id
+        (asserts! (< escrow-id (var-get next-escrow-id)) ERR-INVALID-ESCROW-ID)
         
-        ;; Determine final state based on resolution
-        (let ((new-state (if refund-to-buyer STATE-REFUNDED STATE-COMPLETED)))
-            (map-set escrows 
-                {id: escrow-id} 
-                (merge escrow {state: new-state})
-            )
+        (let ((escrow (unwrap! (map-get? escrows {id: escrow-id}) ERR-DISPUTE-NOT-FOUND)))
+            (asserts! (is-eq (get state escrow) STATE-DISPUTED) ERR-INVALID-STATE)
+            (asserts! (is-eq (get dispute-resolver escrow) (some tx-sender)) ERR-UNAUTHORIZED)
             
-            (ok true)
+            ;; Determine final state based on resolution
+            (let ((new-state (if refund-to-buyer STATE-REFUNDED STATE-COMPLETED)))
+                (map-set escrows 
+                    {id: escrow-id} 
+                    (merge escrow {state: new-state})
+                )
+                
+                (ok true)
+            )
         )
     )
 )
 
 ;; Read-only function to check escrow status
 (define-read-only (get-escrow-status (escrow-id uint))
-    (map-get? escrows {id: escrow-id})
+    (begin
+        ;; Validate escrow-id
+        (asserts! (< escrow-id (var-get next-escrow-id)) ERR-INVALID-ESCROW-ID)
+        
+        ;; Return the escrow data or an error if not found
+        (ok (unwrap! (map-get? escrows {id: escrow-id}) ERR-DISPUTE-NOT-FOUND))
+    )
 )
