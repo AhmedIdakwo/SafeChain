@@ -15,15 +15,17 @@
 (define-constant STATE-REFUNDED u4)
 
 ;; Escrow Structure
-(define-map escrows {
-    id: uint,
-    seller: principal,
-    buyer: principal,
-    amount: uint,
-    state: uint,
-    dispute-resolver: (optional principal),
-    dispute-reason: (optional (string-utf8 200))
-})
+(define-map escrows 
+    {id: uint} 
+    {
+        seller: principal,
+        buyer: principal,
+        amount: uint,
+        state: uint,
+        dispute-resolver: (optional principal),
+        dispute-reason: (optional (string-utf8 200))
+    }
+)
 
 ;; Tracking next escrow ID
 (define-data-var next-escrow-id uint u0)
@@ -40,8 +42,8 @@
             
             ;; Create escrow map entry
             (map-set escrows 
+                {id: escrow-id} 
                 {
-                    id: escrow-id, 
                     seller: seller, 
                     buyer: tx-sender, 
                     amount: amount, 
